@@ -6,6 +6,64 @@ void main() {
   runApp(const PasswordManagerApp());
 }
 
+class LockScreen extends StatefulWidget {
+  const LockScreen({super.key});
+
+  @override
+  _LockScreenState createState() => _LockScreenState();
+}
+
+class _LockScreenState extends State<LockScreen> {
+  final TextEditingController passcodeController = TextEditingController();
+
+  void unlockApp() {
+    String passcode = passcodeController.text;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => HomeScreen(passcode: passcode),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF252525),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              'Enter Passcode',
+              style: TextStyle(color: Colors.white, fontSize: 24),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: 200,
+              child: TextField(
+                controller: passcodeController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  hintText: 'Passcode',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: unlockApp,
+              child: const Text('Unlock'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class PasswordManagerApp extends StatelessWidget {
   const PasswordManagerApp({super.key});
 
@@ -17,14 +75,15 @@ class PasswordManagerApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         visualDensity: VisualDensity.adaptivePlatformDensity,
       ),
-      home: const HomeScreen(),
+      home: const LockScreen(),
     );
   }
 }
 
-
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final String passcode;
+
+  const HomeScreen({super.key, required this.passcode});
 
   @override
   _HomescreenState createState() => _HomescreenState();
@@ -36,12 +95,40 @@ class _HomescreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    fetchWebsites();
+    authenticatePasscode().then((_) {
+      fetchWebsites();
+    });
+  }
+
+  Future<void> authenticatePasscode() async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://localhost:5000/authenticate'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'passcode': widget.passcode}),
+      );
+
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Authenticated: ${result['message']}')),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Authentication failed.')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    }
   }
 
   Future<void> fetchWebsites() async {
     try {
-      final response = await http.get(Uri.parse('http://localhost:5000/get-websites'));
+      final response =
+          await http.get(Uri.parse('http://localhost:5000/get-websites'));
       if (response.statusCode == 200) {
         setState(() {
           websites = List<String>.from(json.decode(response.body)['websites']);
@@ -59,7 +146,8 @@ class _HomescreenState extends State<HomeScreen> {
   }
 
   Future<void> searchPassword(String website) async {
-    final response = await http.get(Uri.parse('http://localhost:5000/search-password?website=$website'));
+    final response = await http.get(
+        Uri.parse('http://localhost:5000/search-password?website=$website'));
     if (response.statusCode == 200) {
       final result = json.decode(response.body);
       String password = result['password'];
@@ -67,13 +155,11 @@ class _HomescreenState extends State<HomeScreen> {
 
       ScaffoldMessenger.of(context).removeCurrentSnackBar();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(
-          'User: $user\nPassword: $password',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-          )
-        )
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+        'User: $user\nPassword: $password',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+      )));
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -83,67 +169,96 @@ class _HomescreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> editPassword(String website) async {
-
+  Future<void> deletePassword(String website) async {
+    final response = await http.post(
+        Uri.parse('http://localhost:5000/delete-password?website=$website'));
+    if (response.statusCode == 200) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password deleted.')),
+      );
+      fetchWebsites();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Website not found.')),
+        );
+      }
+    }
   }
 
-  Future<void> deletePassword(String password) async {
-
+  Future<void> updatePassword(String website, String newPassword) async {
+    final response = await http.post(
+      Uri.parse('http://localhost:5000/edit-password'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'website': website,
+        'new_password': newPassword,
+      }),
+    );
+    if (response.statusCode == 200) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password updated successfully!')),
+      );
+      fetchWebsites();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to update the password.')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF252525),
-      appBar: AppBar(
-        title: const Text('Home'),
         backgroundColor: const Color(0xFF252525),
-        foregroundColor: const Color(0xFFdbdbdb),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add, color: Color(0xFFdbdbdb)),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => PasswordManagerScreen(onSave: fetchWebsites),
-                ),
-              );
-            },
-          ),
-        ],
-      ),
-      body: websites.isEmpty
-          ? const Center(
-              child: Text(
-                'No passwords found. Tap the "+" button to add one.',
-                style: TextStyle(color: Colors.white, fontSize: 18),
-              ),
-            )
-          : Center(  
-            child: Container(
-            width: MediaQuery.of(context).size.width * 0.7,
-            child: ListView.builder(
-              itemCount: websites.length,
-              itemBuilder: (context, index) {
-                return Card(
-                  color: const Color(0xFF353535),
-                  child: ListTile(
-                    title: Text(
-                      websites[index],
-                      style: const TextStyle(color: Color(0xFFdbdbdb)),
-                    ),
-                    onTap: () async{
-                      // view/edit/delete
-                      await _showActionSheet(context, websites[index]);
-                    },
+        appBar: AppBar(
+          title: const Text('Home'),
+          backgroundColor: const Color(0xFF252525),
+          foregroundColor: const Color(0xFFdbdbdb),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.add, color: Color(0xFFdbdbdb)),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) =>
+                        PasswordManagerScreen(onSave: fetchWebsites),
                   ),
                 );
               },
             ),
-          )
-          )
-    );
+          ],
+        ),
+        body: websites.isEmpty
+            ? const Center(
+                child: Text(
+                  'No passwords found. Tap the "+" button to add one.',
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                ),
+              )
+            : Center(
+                child: Container(
+                width: MediaQuery.of(context).size.width * 0.7,
+                child: ListView.builder(
+                  itemCount: websites.length,
+                  itemBuilder: (context, index) {
+                    return Card(
+                      color: const Color(0xFF353535),
+                      child: ListTile(
+                        title: Text(
+                          websites[index],
+                          style: const TextStyle(color: Color(0xFFdbdbdb)),
+                        ),
+                        onTap: () async {
+                          // view/edit/delete
+                          await _showActionSheet(context, websites[index]);
+                        },
+                      ),
+                    );
+                  },
+                ),
+              )));
   }
 
   Future<void> _showActionSheet(BuildContext context, String website) async {
@@ -165,7 +280,7 @@ class _HomescreenState extends State<HomeScreen> {
               title: const Text('Edit'),
               onTap: () async {
                 Navigator.pop(context);
-                await editPassword(website);
+                await _showEditSheet(context, website);
               },
             ),
             ListTile(
@@ -181,11 +296,53 @@ class _HomescreenState extends State<HomeScreen> {
       },
     );
   }
+
+  Future<void> _showEditSheet(BuildContext context, String website) async {
+    TextEditingController newPasswordController = TextEditingController();
+    TextEditingController confirmPasswordController = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return Wrap(
+          children: [
+            TextField(
+              controller: newPasswordController,
+              decoration: const InputDecoration(
+                labelText: 'New Password',
+                prefixIcon: Icon(Icons.lock),
+              ),
+              obscureText: true,
+            ),
+            TextField(
+              controller: confirmPasswordController,
+              decoration: const InputDecoration(
+                labelText: 'Confirm New Password',
+                prefixIcon: Icon(Icons.lock),
+              ),
+              obscureText: true,
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () async {
+                if (newPasswordController.text ==
+                    confirmPasswordController.text) {
+                  Navigator.pop(context);
+                  await updatePassword(website, newPasswordController.text);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Passwords do not match.')),
+                  );
+                }
+              },
+              child: const Text('Change Password'),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
-
-
-
-
 
 class PasswordManagerScreen extends StatefulWidget {
   final VoidCallback onSave;
@@ -205,18 +362,16 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
   String searchResult = '';
   bool isAdvancedSettingsVisible = false;
 
- 
   Future<void> generatePassword() async {
-    if(letter_countController.text != "") {
+    if (letter_countController.text != "") {
       final response = await http.post(
-        Uri.parse('http://localhost:5000/generate-password-adv'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'letter_count': letter_countController.text,
-          'symbol_count': symbol_countController.text,
-          'number_count': number_countController.text
-        })
-        );
+          Uri.parse('http://localhost:5000/generate-password-adv'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'letter_count': letter_countController.text,
+            'symbol_count': symbol_countController.text,
+            'number_count': number_countController.text
+          }));
       if (response.statusCode == 200) {
         setState(() {
           passwordController.text = json.decode(response.body)['password'];
@@ -232,9 +387,9 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
           );
         }
       }
-    }
-    else {
-      final response = await http.get(Uri.parse('http://localhost:5000/generate-password'));
+    } else {
+      final response =
+          await http.get(Uri.parse('http://localhost:5000/generate-password'));
       if (response.statusCode == 200) {
         setState(() {
           passwordController.text = json.decode(response.body)['password'];
@@ -249,24 +404,21 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
     }
   }
 
-  
-  Future<void> advancedSettings() async{
+  Future<void> advancedSettings() async {
     setState(() {
       isAdvancedSettingsVisible = !isAdvancedSettingsVisible;
     });
   }
 
-
   Future<void> savePassword() async {
-    final response = await http.post(
-      Uri.parse('http://localhost:5000/save-password'),
-      headers: {'Content-Type': 'application/json'},
-      body: json.encode({
-        'website': websiteController.text,
-        'user': emailController.text,
-        'password': passwordController.text
-      })
-    );
+    final response =
+        await http.post(Uri.parse('http://localhost:5000/save-password'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'website': websiteController.text,
+              'user': emailController.text,
+              'password': passwordController.text
+            }));
     if (response.statusCode == 200) {
       if (mounted) {
         websiteController.clear();
@@ -286,7 +438,6 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -299,9 +450,8 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
       ),
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.all(70.0),
-          child: Column(
-            children: [ 
+            padding: const EdgeInsets.all(70.0),
+            child: Column(children: [
               Card(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -313,23 +463,22 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       const SizedBox(height: 20),
-                      Row( 
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: websiteController,
-                              decoration: const InputDecoration(
-                                labelText: 'Website',
-                                labelStyle: TextStyle(color: Color(0xFFdbdbdb)),
-                                border: OutlineInputBorder(),
-                                prefixIcon: Icon(Icons.web),
+                      Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: websiteController,
+                                decoration: const InputDecoration(
+                                  labelText: 'Website',
+                                  labelStyle:
+                                      TextStyle(color: Color(0xFFdbdbdb)),
+                                  border: OutlineInputBorder(),
+                                  prefixIcon: Icon(Icons.web),
+                                ),
                               ),
                             ),
-                          ),
-                        ]
-                      ),
-                      
+                          ]),
                       const SizedBox(height: 12),
                       TextField(
                         controller: emailController,
@@ -340,7 +489,6 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
                           prefixIcon: Icon(Icons.email),
                         ),
                       ),
-
                       const SizedBox(height: 12),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -357,28 +505,26 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
                               obscureText: true,
                             ),
                           ),
-
                           const SizedBox(width: 8),
                           ElevatedButton.icon(
-                            onPressed: isAdvancedSettingsVisible 
-                              ? () {
-                                  generatePassword();
-                                  advancedSettings();
-                                }
-                              : generatePassword,
+                            onPressed: isAdvancedSettingsVisible
+                                ? () {
+                                    generatePassword();
+                                    advancedSettings();
+                                  }
+                                : generatePassword,
                             icon: const Icon(Icons.vpn_key),
                             label: const Text('Generate Password'),
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
                               backgroundColor: Color(0xFF252525),
                               foregroundColor: Color(0xFFdbdbdb),
                             ),
                           ),
                         ],
                       ),
-
                       const SizedBox(height: 20),
-
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -387,18 +533,19 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
                             icon: const Icon(Icons.save),
                             label: const Text('Save Password'),
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
                               backgroundColor: Color(0xFF252525),
                               foregroundColor: Color(0xFFdbdbdb),
                             ),
                           ),
-
                           ElevatedButton.icon(
                             onPressed: advancedSettings,
                             icon: const Icon(Icons.settings),
                             label: const Text('Advanced'),
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 12),
                               backgroundColor: Color(0xFF252525),
                               foregroundColor: Color(0xFFdbdbdb),
                             ),
@@ -417,10 +564,9 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
                   ),
                 ),
               ),
-
               const SizedBox(height: 20),
               if (isAdvancedSettingsVisible)
-                Card( 
+                Card(
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(15.0),
                   ),
@@ -464,9 +610,7 @@ class _PasswordManagerScreenState extends State<PasswordManagerScreen> {
                     ),
                   ),
                 ),
-            ]
-          )
-        ),
+            ])),
       ),
     );
   }

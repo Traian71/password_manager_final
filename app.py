@@ -7,9 +7,13 @@ import base64
 from cryptography.fernet import Fernet
 import os
 
-cipher_suite = None
+key = None
 app = Flask(__name__)
 CORS(app)
+
+
+
+
 
 def generate_key_from_passcode(passcode):
     hashed_passcode = sha256(passcode.encode()).digest()[:32]
@@ -60,14 +64,18 @@ def password_route():
 
 @app.route('/get-websites', methods=['GET'])
 def get_websites():
+    global key
+
     websites_list = {
         "websites": []
     }
+    user_key = key
     try:
         with open("data.json", "r") as file:
             data = json.load(file)
-            for website in data.keys():
-                websites_list["websites"].append(website)
+            for website, details in data.items():
+                if details.get("user_key") == user_key:
+                    websites_list["websites"].append(website)
         return jsonify(websites_list), 200
     except FileNotFoundError:
         return jsonify({"error": "No data file found"}), 404
@@ -76,16 +84,20 @@ def get_websites():
 
 @app.route('/save-password', methods=['POST'])
 def save_password():
+    global key
+    cipher_suite = Fernet(key.encode())
     data = request.json
     website = data.get("website")
     user = data.get("user")
     password = data.get("password")
+    user_key = key
 
     encrypted_password = cipher_suite.encrypt(password.encode()).decode()
     new_data = {
         website: {
             "user": user,
-            "password": encrypted_password
+            "password": encrypted_password,
+            "user_key": user_key
         }
     }
 
@@ -108,7 +120,7 @@ def edit_password():
     data = request.json
     website = data.get("website")
     password = data.get("new_password")
-
+    cipher_suite = Fernet(key.encode())
     try:
         with open("data.json", "r") as file:
             existing_data = json.load(file)
@@ -124,14 +136,13 @@ def edit_password():
     except (FileNotFoundError, json.JSONDecodeError):
         return jsonify({"error": "Error reading data file"}), 500
 
-
 @app.route('/authenticate', methods=['POST'])
 def authenticate():
-    global cipher_suite
+    global key
     data = request.json
     passcode = data.get("passcode")
-    key = generate_key_from_passcode(passcode)
-    cipher_suite = Fernet(key)
+    key = generate_key_from_passcode(passcode).decode()
+
 
     return jsonify({"message": "Authentication successful"}), 200
 
@@ -140,11 +151,14 @@ def authenticate():
 @app.route('/search-password', methods=['GET'])
 def search_password():
     website = request.args.get('website')
+    user_key = key
+    cipher_suite = Fernet(key.encode())
     try:
         with open("data.json", "r") as file:
             data = json.load(file)
             if website in data:
                 encrypted_password = data[website]["password"]
+            #
                 decrypted_password = cipher_suite.decrypt(encrypted_password.encode()).decode()
 
                 data[website]["password"] = decrypted_password
